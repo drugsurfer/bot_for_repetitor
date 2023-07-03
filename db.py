@@ -8,7 +8,7 @@ def get_connection():
     '''
     global __connection
     if __connection is None:
-        __connection = sqlite3.connect('rep.db')
+        __connection = sqlite3.connect('rep.db',check_same_thread=False)
     return __connection
 
 def init_user_db(force: bool = False):
@@ -69,7 +69,7 @@ def add_user_to_db(user: tuple):
         c.execute('INSERT INTO user_data (id, name, sur_name) VALUES (?, ?, ?);', (user[0], user[1], user[2]))
     connection.commit()
 
-def search_students_in_db(user_id: int, student_name: str, student_science: str):
+def check_students_in_db(user_id: int, student_name: str, student_science: str):
     '''
     Ищет ученика по определенному критерию
     user_id - id преподавателя, среди учеников которого происходит поиск
@@ -79,6 +79,16 @@ def search_students_in_db(user_id: int, student_name: str, student_science: str)
     connection = get_connection()
     c = connection.cursor()
     return c.execute('SELECT * FROM students WHERE id = ? AND name = ? AND science_object = ?', (user_id, student_name, student_science)).fetchall()
+
+def get_user_data_from_db(user_id: int):
+    '''
+    Возвращает информацию о преподавателе
+    return: (user_name, user_surname)
+    '''
+    connection = get_connection()
+    c = connection.cursor()
+    data = c.execute('SELECT * FROM user_data WHERE id = ?;', (user_id, )).fetchall()[0]
+    return data[2], data[3]
 
 def add_student_to_db(student: tuple):
     '''
@@ -90,7 +100,7 @@ def add_student_to_db(student: tuple):
     c = connection.cursor()
     if check_id_in_db(user_id, 'user_data'):
         # преподаватель ученика есть в базе
-        if len(search_students_in_db(user_id, name, science_object)) == 0:
+        if len(check_students_in_db(user_id, name, science_object)) == 0:
             c.execute('INSERT INTO students (id, name, sur_name, science_object, lesson_cost) VALUES (?, ?, ?, ?, ?);',
             (user_id, name, sur_name, science_object, lesson_cost))
         else:
@@ -141,14 +151,7 @@ def replace_value(value, column_name: str, table_name: str, id: int):
 def check_db():
     connection = get_connection()
     c = connection.cursor()
-    c.execute('SELECT * FROM students;')
+    c.execute('SELECT * FROM user_data;')
     print(c.fetchall())
 
     
-init_user_db()
-init_students_db()
-check_db()
-add_user_to_db((1001, 'Евгений', 'Кондратьев'))
-add_student_to_db((1001, 'Мария', 'Иванова', 'Физика', 700))
-replace_value('Кондратьев', 'sur_name', 'user_data', 1)
-check_db()

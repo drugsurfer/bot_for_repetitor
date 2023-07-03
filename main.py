@@ -57,36 +57,84 @@ bot.polling(none_stop=True, interval=0)
 
 class User:
     def __init__(self):
-        self.user_id = id
-        self.name = ''
-        self.surname = ''
+        self.user_id = None
+        self.name = None
+        self.surname = None
         self.first_registration = True
 
-    def db_init(self):
-        pass
+    def db_init(self, force=False):
+        '''
+        Инициализирует БД
+        force - Уничтожает таблицы в БД и создает новые
+        '''
+        db.init_user_db()
+        db.init_user_db()
+    
+    def check_user_in_db(self):
+        if db.check_id_in_db(user.user_id, 'user_data'):
+            self.first_registration, self.name, self.surname = False, db.get_user_data_from_db(user.user_id)
+            return True
+        return False
+
 
 user = User()
-@bot.message_handler(content_types=['text'])
+
+@bot.message_handler(commands=['registration'])
+def registration(message):
+    bot.send_message(message.chat.id, message.chat.id)
+
+@bot.message_handler(commands=['start'])
 def start(message):
-    if message.text == '/start':
-        global user
+    # При запуске бота выполняется этот метод! Нет проверки наличия пользователя в БД
+    global user
+    if user.user_id is None:
         user.user_id = message.chat.id
-        bot.send_message(message.chat.id, 'Давай познакомимся. Меня зовут Кринж-Лорд! А как тебя именуют?')
-        bot.register_next_step_handler(message, get_name) #следующий шаг – функция get_name
+    if user.check_user_in_db():
+        # Такой пользователь есть в БД
+        bot.send_message(user.user_id, '{} {}, приятно вас снова видеть!\nВведите команду, которую необходимо исполнить.'.format(
+            user.name, user.surname
+        ))
+        bot.send_message(user.user_id, 'Если вы не помните список нужных команд, то напишите: /help')
     else:
-        bot.send_message(message.chat.id, 'УРОД, напиши /start')
+        bot.send_message(user.user_id, 'Начнем процесс регистрации. Введите свое имя')
+        bot.register_next_step_handler(message, get_name)
+
+@bot.message_handler(commands=['help'])
+def help(message):
+    global user
+    if not user.first_registration:
+        # Ввыодим список текущих команд
+        bot.send_message(user.user_id, '')
+    else:
+        bot.send_message(message.chat.id, 'Воспользуйтесь регистрацией через /start')
+
+@bot.message_handler(content_types=['text'])
+def main(message):
+    # Проверить, что пользователь есть в базе
+    global user
+    user.user_id = str(message.chat.id)
+    user.db_init()
+    if db.check_id_in_db(user.user_id, 'user_data'):
+        # Такой преподаватель есть в базе
+        user.first_registration, user.name, user.surname = False, db.get_user_data_from_db(user.user_id)
+        bot.send_message(user.user_id, '{} {}, приятно вас снова видеть!\nВведите команду, которую необходимо исполнить.'.format(
+            user.name, user.surname
+        ))
+        bot.send_message(user.user_id, 'Если вы не помните список нужных команд, то напишите: /help')
+    else:
+        bot.send_message(user.user_id, 'Мы еще не знакомы. Если ты готов познакомиться напиши: /start')
+
 
 def get_name(message):
     global user
     user.name = message.text
-    bot.send_message(message.chat.id, 'Какая у тебя фамилия?')
+    bot.send_message(user.user_id, 'Какая у тебя фамилия?')
     bot.register_next_step_handler(message, get_surname)
 
 def get_surname(message):
     global user
-    if user.first_registration:
-        user.surname = message.text
-        #bot.send_message(message.chat.id, 'Внимание! Последний вопрос')
+    user.surname = message.text
+    #bot.send_message(message.chat.id, 'Внимание! Последний вопрос')
     keyboard = types.InlineKeyboardMarkup() #наша клавиатура
     key_yes = types.InlineKeyboardButton(text='Да', callback_data='yes') #кнопка «Да»
     keyboard.add(key_yes) #добавляем кнопку в клавиатуру
