@@ -58,14 +58,11 @@ def init_students_db(force: bool = False):
 def add_user_to_db(user: tuple):
     '''
     Добавляет в user_data запись пользователя
-    user = (user_id: int, user_name: str, user_surname: str)
+    user = (id: str, name: str, surname: str)
     '''
     connection = get_connection()
     c = connection.cursor()
-    if check_id_in_db(user[0], 'user_data'):
-        print(user[0], 'Уже есть в таблице users') # такой user_id уже есть в БД
-    else:
-        # такого user_id нет в БД
+    if not check_id_in_db(user[0], 'user_data'):
         c.execute('INSERT INTO user_data (id, name, sur_name) VALUES (?, ?, ?);', (user[0], user[1], user[2]))
     connection.commit()
 
