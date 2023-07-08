@@ -1,4 +1,5 @@
 import sqlite3
+import time
 
 __connection = None
 
@@ -13,7 +14,7 @@ def get_connection():
 
 def init_user_db(force: bool = False):
     '''
-    инициализирует базу преподавателей. force может перезаписать старую
+    инициализирует таблицу преподавателей. force может перезаписать старую
     '''
     connection = get_connection()
     c = connection.cursor()
@@ -26,14 +27,15 @@ def init_user_db(force: bool = False):
             id_primary          INTEGER PRIMARY KEY,
             id     INTEGER NOT NULL,
             name   TEXT NOT NULL,
-            sur_name TEXT NOT NULL);
+            sur_name TEXT NOT NULL,
+            count_lesson INTEGER NOT NULL);
     ''')
 
     connection.commit()
 
 def init_students_db(force: bool = False):
     '''
-    инициализирует базу учеников. force может перезаписать старую
+    инициализирует таблицу учеников. force может перезаписать старую
     user_id -> id FROM user_data
 
     '''
@@ -50,10 +52,61 @@ def init_students_db(force: bool = False):
             name   TEXT NOT NULL,
             sur_name TEXT NOT NULL,
             science_object TEXT NOT NULL,
-            lesson_cost INTEGER NOT NULL);
+            lesson_cost INTEGER NOT NULL,
+            date_next_lesson TEXT NOT NULL);
     ''')
 
     connection.commit()
+
+def init_lessons_db(force: bool = False):
+    '''
+    Инициализирует таблицу уроков
+    id -> id_primary FROM students
+    '''
+    connection = get_connection()
+    c = connection.cursor()
+
+    if force:
+        c.execute('DROP TABLE IF EXISTS lessons')
+
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS lessons (
+            id_primary INTEGER PRIMARY KEY,
+            id INTEGER NOT NULL,
+            date TEXT NOT NULL,
+            time_lesson TEXT NOT NULL);
+    ''')
+
+    connection.commit()
+
+def add_lesson_to_db(id: int, date: str, time_lesson: float):
+    '''
+    Добавляет в lessons запись урока
+    id - id_primary ученика from students
+    date - время урока в формате day-month-year
+    time_lesson - длительность урока в часах
+    '''
+    connection = get_connection()
+    c = connection.cursor()
+    if check_student_in_db(id):
+        c.execute(
+            'INSERT INTO lessons (id, date, time_lesson) VALUES (?, ?, ?);',
+            (id, date, str(time_lesson))
+        )
+    connection.commit()
+
+def check_student_in_db(id: int):
+    '''
+    Проверяет наличие ученика с id_primary в таблице students
+    '''
+    connection = get_connection()
+    c = connection.cursor()
+    if len(c.execute(
+        'SELECT * FROM STUDENTS WHERE id_primary = ?;',
+        (id, )).fetchall()) != 0:
+        return True
+    return False
+
 
 def add_user_to_db(user: tuple):
     '''
@@ -62,11 +115,11 @@ def add_user_to_db(user: tuple):
     '''
     connection = get_connection()
     c = connection.cursor()
-    if not check_id_in_db(user[0], 'user_data'):
+    if not check_id_in_user_db(user[0], 'user_data'):
         c.execute('INSERT INTO user_data (id, name, sur_name) VALUES (?, ?, ?);', (user[0], user[1], user[2]))
     connection.commit()
 
-def check_students_in_db(user_id: int, student_name: str, student_science: str):
+def get_student_in_db(user_id: str, student_name: str, student_science: str):
     '''
     Ищет ученика по определенному критерию
     user_id - id преподавателя, среди учеников которого происходит поиск
@@ -75,16 +128,32 @@ def check_students_in_db(user_id: int, student_name: str, student_science: str):
     '''
     connection = get_connection()
     c = connection.cursor()
-    return c.execute('SELECT * FROM students WHERE id = ? AND name = ? AND science_object = ?', (user_id, student_name, student_science)).fetchall()
+    return c.execute(
+        'SELECT * FROM students WHERE id = ? AND name = ? AND science_object = ?', 
+        (user_id, student_name, student_science)
+        ).fetchall()
 
-def get_user_data_from_db(user_id: int):
+def get_all_students_fot_user(user_id: str):
+    '''
+    Возвращает всех студентов, прикрепленных к текущему преподавателю
+    '''
+    connection = get_connection()
+    c = connection.cursor()
+    return c.execute(
+        'SELECT * FROM students WHERE id = ?', 
+        (user_id, )).fetchall()
+
+def get_user_data_from_db(user_id: str):
     '''
     Возвращает информацию о преподавателе
     return: (user_name, user_surname)
     '''
     connection = get_connection()
     c = connection.cursor()
-    data = c.execute('SELECT * FROM user_data WHERE id = ?;', (user_id, )).fetchall()[0]
+    data = c.execute(
+        'SELECT * FROM user_data WHERE id = ?;', 
+        (user_id, )
+        ).fetchall()[0]
     return data[2], data[3]
 
 def add_student_to_db(student: tuple):
@@ -95,11 +164,13 @@ def add_student_to_db(student: tuple):
     user_id, name, sur_name, science_object, lesson_cost = student
     connection = get_connection()
     c = connection.cursor()
-    if check_id_in_db(user_id, 'user_data'):
+    if check_id_in_user_db(user_id, 'user_data'):
         # преподаватель ученика есть в базе
-        if len(check_students_in_db(user_id, name, science_object)) == 0:
-            c.execute('INSERT INTO students (id, name, sur_name, science_object, lesson_cost) VALUES (?, ?, ?, ?, ?);',
-            (user_id, name, sur_name, science_object, lesson_cost))
+        if len(get_student_in_db(user_id, name, science_object)) == 0:
+            c.execute(
+                'INSERT INTO students (id, name, sur_name, science_object, lesson_cost) VALUES (?, ?, ?, ?, ?);',
+                (user_id, name, sur_name, science_object, lesson_cost)
+            )
         else:
             print(name, 'уже есть в таблице students')
     else:
@@ -107,7 +178,19 @@ def add_student_to_db(student: tuple):
         pass
     connection.commit()
 
-def check_id_in_db(id: int, db_name: str):
+def del_student_to_db(student_id: int):
+    '''
+    Удаляет ученика из таблицы students, по id_primary (student_id)
+    '''
+    connection = get_connection()
+    c = connection.cursor()
+    c.execute(
+        'DELETE FROM students WHERE id_primary = ?;',
+        (student_id,)
+    )
+    connection.commit()
+
+def check_id_in_user_db(id: int, db_name: str):
     connection = get_connection()
     c = connection.cursor()
     if c.execute('SELECT EXISTS (SELECT 1 FROM {} WHERE id = ? LIMIT 1);'.format(db_name), (id, )).fetchone()[0]:
@@ -150,5 +233,3 @@ def check_db():
     c = connection.cursor()
     c.execute('SELECT * FROM user_data;')
     print(c.fetchall())
-
-    
