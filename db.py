@@ -27,8 +27,7 @@ def init_user_db(force: bool = False):
             id_primary          INTEGER PRIMARY KEY,
             id     INTEGER NOT NULL,
             name   TEXT NOT NULL,
-            sur_name TEXT NOT NULL,
-            count_lesson INTEGER NOT NULL);
+            sur_name TEXT NOT NULL);
     ''')
 
     connection.commit()
@@ -52,8 +51,7 @@ def init_students_db(force: bool = False):
             name   TEXT NOT NULL,
             sur_name TEXT NOT NULL,
             science_object TEXT NOT NULL,
-            lesson_cost INTEGER NOT NULL,
-            date_next_lesson TEXT NOT NULL);
+            lesson_cost INTEGER NOT NULL);
     ''')
 
     connection.commit()
@@ -233,3 +231,7 @@ def check_db():
     c = connection.cursor()
     c.execute('SELECT * FROM user_data;')
     print(c.fetchall())
+
+if __name__ == '__main__':
+    init_user_db()
+    init_students_db()

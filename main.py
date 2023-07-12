@@ -6,13 +6,12 @@ bot = telebot.TeleBot('6086054957:AAEeQHfrsHjywhKS1p9H-YrQc-nkLNcWZ0g')
 
 users = {} # Словарь, хранящий текущих пользователей
 
-# TODO Удаление через primary key нереально. Придумать другое удаление 
-
 class User:
     def __init__(self, id: str):
         self.user_id = id
         self.name = None
         self.surname = None
+        self.lesson_info = [] # [student_id, time_lesson, (day, month, year next_lesson), (hour, minutes next_lesson)]
 
     def get_user_data(self):
         '''
@@ -34,7 +33,7 @@ class User:
         '''
         Проверяет наличие пользователя в БД
         '''
-        if db.check_id_in_db(self.user_id, 'user_data'):
+        if db.check_id_in_user_db(self.user_id, 'user_data'):
             self.name, self.surname = db.get_user_data_from_db(self.user_id)
             return True
         return False
@@ -46,10 +45,11 @@ class User:
         print(self.get_user_data())
         db.add_user_to_db(self.get_user_data())
 
-    def del_student(self, student_id: int, students: list):
+    def del_student(self, student_id: int):
         '''
         Удаляет студента из БД по его id_primary
         '''
+        students = self.get_student()
         id_ = students[student_id][0]
         try:
             db.del_student_to_db(id_)
@@ -75,11 +75,12 @@ class User:
         '''
         db.add_student_to_db((self.user_id, name, surname, science, cost))
 
-    def add_lesson_to_db(self, student_id, time_lesson, time_next_lesson):
+    def add_lesson_to_db(self):
         '''
         Сохраняет информацию о проведенном и новом уроке в БД
         '''
-        pass
+        students = self.get_student()
+        id_ = students[self.lesson_info[0]][0]
 
     def replace_user_in_db(self, replace_column: str, replace_value):
         '''
@@ -113,28 +114,60 @@ def run_telegram_bot():
                 'Вы еще не зарегистрированы. Нажмите /start'
             )
             return
+        show_info_for_students(user, add_message=True)
+
+    def get_time_lesson(message):
+        user = check_user_is_auth(str(message.chat.id))
+        user.lesson_info.append(message.text)
         bot.send_message(
             user.user_id,
-            'Введите номер ученика, с которым у вас был урок, а также сколько по времени длился урок (в часах) в формате:\n\
-1. Номер ученика из списка.\n\
-2. Количество в часах.\n\
-3. Время следующего урока в формате: день - месяц - время урока. Например: 07 - 11 - 17:00.')
-        # TODO Переписать, потому что теперь ученики выводятся в формате кнопок
-        show_info_for_students(user)
-        bot.register_next_step_handler(message, add_lesson_in_db)
+            'Введите дату следующего урока в формате: day-month-year-hour:minute. Например: 12-06-2023-15:00'
+        )
+        bot.register_next_step_handler(message, get_date_next_lesson)
 
-    def add_lesson_in_db(message):
+    def get_date_next_lesson(message):
         user = check_user_is_auth(str(message.chat.id))
-        parse_str = message.text.split('\n')
         try:
-            student_id = int(parse_str[0].split('.')[1])
-            time_lesson = int(parse_str[1].split('.')[1])
-            date_next_lesson = parse_str[2].split('.')[1]
+            day, month, year, time = message.text.split('-')
+            answer = None
+            if not(1 <= int(day) <= 31):
+                answer = 'День введен некорректно!'
+            if not(1 <= int(month) <= 12):
+                answer = 'Месяц введен некорректно!'
+            if len(year.split()[0]) != 4:
+                answer = 'Год введен некорректно!'
+            hour, minutes = time.split(':')
+            if not(0 <= int(hour) <= 12):
+                answer = 'Час введен некорректно!'
+            if not(0 <= int(minutes) <= 59):
+                answer = 'Минуты введены некорректно!'
+            if answer is not None:
+                bot.send_message(
+                    user.user_id,
+                    answer
+                )
+            else:
+                user.lesson_info.append((day.split()[0], hour.split()[0], year.split()[0]))
+                user.lesson_info.append((hour.split()[0], minutes.split()[0]))
+                add_lesson_to_db(user)
         except Exception:
             bot.send_message(
-                user.user_id, 
-                'Неправильно введены данные. Смотри внимательнее пример.'
-                )
+                user.user_id,
+                'Неправильно введено время следующего урока, попробуйте еще раз. Нажмите /add_lesson'
+            )
+
+    def add_lesson_to_db(user):
+        try:
+            user.add_lesson_to_db()
+            bot.send_message(
+                user.user_id,
+                'Урок успешно добавлен!'
+            )
+        except Exception:
+            bot.send_message(
+                user.user_id,
+                'Проблемы с добавлением в БД! Попробуйте позже.'
+            )
 
     @bot.message_handler(commands=['del_student'])
     def del_student(message):
@@ -146,7 +179,6 @@ def run_telegram_bot():
             )
             return
         show_info_for_students(user, del_message=True)
-        #bot.register_next_step_handler(message, del_student_from_db)
 
     @bot.message_handler(commands=['add_new_student'])
     def add_new_student(message):
@@ -169,8 +201,6 @@ def run_telegram_bot():
 
     def add_student_in_db(message):
         user = check_user_is_auth(str(message.chat.id))
-        # TODO Переписать адекватный парсер
-        # TODO Добавить кнопки ДА/НЕТ и только потом добавлять в базу
         parse_str = message.text.split('\n')
         student_data = []
         for i, s in enumerate(parse_str):
@@ -181,16 +211,23 @@ def run_telegram_bot():
                 )
                 return
             student_data.append(s.split('.')[1].split()[0])
-        try:
-            user.add_student_in_db(*student_data)
-            bot.send_message(
-                user.user_id, 
-                'Ученик добавлен!'
+        keyboard = types.InlineKeyboardMarkup()
+        data = 'add_student'
+        key = types.InlineKeyboardButton(
+            text='Да, все верно', 
+            callback_data=(data + f'-yes-{student_data[0]}-{student_data[1]}-{student_data[2]}-{student_data[3]}')
             )
-        except Exception:
-            bot.send_message(
-                user.user_id, 
-                'Проблемы с добавлением в БД. Попробуйте еще раз!'
+        keyboard.add(key)
+        key = types.InlineKeyboardButton(text='Нет', callback_data=(data + '-no'))
+        keyboard.add(key)
+        bot.send_message(
+            user.user_id, 
+            text=f'''Правильно я понял данные нового ученика:
+1. {student_data[0]};
+2. {student_data[1]};
+3. {student_data[2]};
+4. {student_data[3]}.''', 
+            reply_markup=keyboard
             )
 
     @bot.message_handler(commands=['all_info_for_students'])
@@ -202,13 +239,14 @@ def run_telegram_bot():
                 'Вы еще не зарегистрированы. Нажмите /start'
             )
             return
-        # TODO Здесь можно добавить параллельную ветку. Выводятся все ученики 
-        # а далее вызывается меню в котором можно выбрать что делать с учеником
-        show_info_for_students(user)
+        show_info_for_students(user, list_view=True)
 
-    def show_info_for_students(user: User, del_message: bool = False):
+    def show_info_for_students( user: User, 
+                                list_view: bool = False,
+                                del_message: bool = False,
+                                add_message: bool = False):
         '''
-        Выводит информацию об учениках, в виде кнопок
+        Выводит информацию об учениках
         '''
         students = user.get_student()
         if len(students) == 0:
@@ -218,34 +256,37 @@ def run_telegram_bot():
                 Для добавления ученика нажмите /add_new_student.'
             )
             return
-        '''
-        message_ = ''
-        for i, student in enumerate(students):
-            name_, surname_, science_, cost_ = student[2], student[3], student[4], student[5]
-            message_ += f'{i + 1}. {name_} {surname_}. Предмет: {science_}. Стоимость урока: {cost_}р.\n'
-        bot.send_message(
-            user.user_id,
-            message_
-        )
-        if del_message:
+        if list_view:
+            message_ = ''
+            for i, student in enumerate(students):
+                name_, surname_, science_, cost_ = student[2], student[3], student[4], student[5]
+                message_ += f'{i + 1}. {name_} {surname_}. Предмет: {science_}. Стоимость урока: {cost_}р.\n'
             bot.send_message(
                 user.user_id,
-                'Введите номер ученика'
+                message_
             )
-        '''
+            return
         keyboard = types.InlineKeyboardMarkup()
         for i, student in enumerate(students):
             name, surname = student[2], student[3]
             if del_message:
                 data = f'del_student-{i}'
+            if add_message:
+                data = f'add_lesson-{i}'
             key = types.InlineKeyboardButton(text=f'{name} {surname}', callback_data=data)
             keyboard.add(key)
         if del_message:
             bot.send_message(
-            user.user_id, 
-            text='Выберите удаляемого ученика', 
-            reply_markup=keyboard
-        )
+                user.user_id, 
+                text='Выберите удаляемого ученика', 
+                reply_markup=keyboard
+            )
+        if add_message:
+            bot.send_message(
+                user.user_id,
+                text='Выберите ученика, с которым у вас был урок',
+                reply_markup=keyboard
+            )
 
     @bot.message_handler(commands=['registration'])
     def registration(message):
@@ -331,7 +372,6 @@ def run_telegram_bot():
     @bot.callback_query_handler(func=lambda call: True)
     def callback_worker(call):
         user = check_user_is_auth(str(call.message.chat.id))
-        print(call.message.chat.id)
         if call.data == "yes": #call.data это callback_data, которую мы указали при объявлении кнопки
             user.save_user_in_db()
             bot.send_message(
@@ -344,10 +384,10 @@ def run_telegram_bot():
                 'Странно, попробуем еще раз. Напиши /registration'
             )
         command = call.data.split('-')[0]
-        if command == 'del_message':
+
+        if command == 'del_student':
             student_id = int(call.data.split('-')[1])
-            students = user.get_student()
-            if user.del_student(student_id, students):
+            if user.del_student(student_id):
                 bot.send_message(
                     user.user_id,
                     'Успешно!'
@@ -356,6 +396,35 @@ def run_telegram_bot():
                 bot.send_message(
                     user.user_id,
                     'Проблемы с БД. Попробуйте позже.'
+                )
+
+        if command == 'add_lesson':
+            student_id = int(call.data.split('-')[1])
+            user.lesson_info.append(student_id)
+            bot.send_message(
+                user.user_id,
+                'Введите сколько (в часах) длился урок'
+            )
+            bot.register_next_step_handler(call.message, get_time_lesson)
+            
+        if command == 'add_student':
+            answer = call.data.split('-')
+            if answer[1] == 'yes':
+                try:
+                    user.add_student_in_db(answer[2], answer[3], answer[4], int(answer[5]))
+                    bot.send_message(
+                        user.user_id, 
+                        'Ученик добавлен!'
+                    )
+                except Exception:
+                    bot.send_message(
+                        user.user_id, 
+                        'Проблемы с добавлением в БД. Попробуйте еще раз!'
+                    )
+            else:
+                bot.send_message(
+                user.user_id, 
+                'Странно, попробуем еще раз. Напиши /add_new_student'
                 )
 
         bot.answer_callback_query(call.id)
