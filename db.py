@@ -1,5 +1,5 @@
 import sqlite3
-import time
+import datetime
 
 __connection = None
 
@@ -51,7 +51,8 @@ def init_students_db(force: bool = False):
             name   TEXT NOT NULL,
             sur_name TEXT NOT NULL,
             science_object TEXT NOT NULL,
-            lesson_cost INTEGER NOT NULL);
+            lesson_cost INTEGER NOT NULL,
+            date_next_lesson TEXT NOT NULL);
     ''')
 
     connection.commit()
@@ -77,20 +78,24 @@ def init_lessons_db(force: bool = False):
 
     connection.commit()
 
-def add_lesson_to_db(id: int, date: str, time_lesson: float):
+def add_lesson_to_db(student_id: int, time_lesson: str, date_next_lesson: str):
     '''
     Добавляет в lessons запись урока
-    id - id_primary ученика from students
-    date - время урока в формате day-month-year
+    student_id - id_primary ученика from students
     time_lesson - длительность урока в часах
+    date_next_lesson - (day, month, year next_lesson)
+    time_next_lesson - (hour, minutes next_lesson)
     '''
     connection = get_connection()
     c = connection.cursor()
-    if check_student_in_db(id):
+    if check_student_in_db(student_id):
+        now_data = str(datetime.datetime.now()).split() # ['2022-06-20', '16:06:13.176788']
+        date = now_data[0] + '-' + now_data[1][:5]
         c.execute(
             'INSERT INTO lessons (id, date, time_lesson) VALUES (?, ?, ?);',
-            (id, date, str(time_lesson))
+            (student_id, date, time_lesson)
         )
+        replace_value(date_next_lesson, 'date_next_lesson', 'students', student_id)
     connection.commit()
 
 def check_student_in_db(id: int):
@@ -157,17 +162,17 @@ def get_user_data_from_db(user_id: str):
 def add_student_to_db(student: tuple):
     '''
     Добавляет ученика в students.
-    student = (user_id: int, name: str, sur_name: str, science_object: str, lesson_cost: int)
+    student = (user_id: int, name: str, sur_name: str, science_object: str, lesson_cost: int, date_next_lesson: str)
     '''
-    user_id, name, sur_name, science_object, lesson_cost = student
+    user_id, name, sur_name, science_object, lesson_cost, date_next_lesson = student
     connection = get_connection()
     c = connection.cursor()
     if check_id_in_user_db(user_id, 'user_data'):
         # преподаватель ученика есть в базе
         if len(get_student_in_db(user_id, name, science_object)) == 0:
             c.execute(
-                'INSERT INTO students (id, name, sur_name, science_object, lesson_cost) VALUES (?, ?, ?, ?, ?);',
-                (user_id, name, sur_name, science_object, lesson_cost)
+                'INSERT INTO students (id, name, sur_name, science_object, lesson_cost, date_next_lesson) VALUES (?, ?, ?, ?, ?, ?);',
+                (user_id, name, sur_name, science_object, lesson_cost, date_next_lesson)
             )
         else:
             print(name, 'уже есть в таблице students')
@@ -180,6 +185,7 @@ def del_student_to_db(student_id: int):
     '''
     Удаляет ученика из таблицы students, по id_primary (student_id)
     '''
+    # TODO: Добавить удаление всех уроков с этим учеником в БД
     connection = get_connection()
     c = connection.cursor()
     c.execute(
@@ -235,3 +241,4 @@ def check_db():
 if __name__ == '__main__':
     init_user_db()
     init_students_db()
+    init_lessons_db()

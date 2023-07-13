@@ -11,7 +11,8 @@ class User:
         self.user_id = id
         self.name = None
         self.surname = None
-        self.lesson_info = [] # [student_id, time_lesson, (day, month, year next_lesson), (hour, minutes next_lesson)]
+        self.lesson_info = [] # [student_id, time_lesson, date_next_lesson]
+        self.student_info = [] # [name, surname, science, cost, date_next_lesson]
 
     def get_user_data(self):
         '''
@@ -69,11 +70,11 @@ class User:
             student = db.get_student_in_db(self.user_id, student_name, student_science)
         return student
 
-    def add_student_in_db(self, name, surname, science, cost):
+    def add_student_in_db(self):
         '''
         Добавляет нового ученика в БД 
         '''
-        db.add_student_to_db((self.user_id, name, surname, science, cost))
+        db.add_student_to_db((self.user_id, self.student_info[0], self.student_info[1], self.student_info[2], self.student_info[3], self.student_info[4]))
 
     def add_lesson_to_db(self):
         '''
@@ -81,6 +82,8 @@ class User:
         '''
         students = self.get_student()
         id_ = students[self.lesson_info[0]][0]
+        db.add_lesson_to_db(id_, self.lesson_info[1], self.lesson_info[2])
+
 
     def replace_user_in_db(self, replace_column: str, replace_value):
         '''
@@ -137,7 +140,7 @@ def run_telegram_bot():
             if len(year.split()[0]) != 4:
                 answer = 'Год введен некорректно!'
             hour, minutes = time.split(':')
-            if not(0 <= int(hour) <= 12):
+            if not(0 <= int(hour) <= 23):
                 answer = 'Час введен некорректно!'
             if not(0 <= int(minutes) <= 59):
                 answer = 'Минуты введены некорректно!'
@@ -147,8 +150,7 @@ def run_telegram_bot():
                     answer
                 )
             else:
-                user.lesson_info.append((day.split()[0], hour.split()[0], year.split()[0]))
-                user.lesson_info.append((hour.split()[0], minutes.split()[0]))
+                user.lesson_info.append(message.text)
                 add_lesson_to_db(user)
         except Exception:
             bot.send_message(
@@ -195,7 +197,8 @@ def run_telegram_bot():
             \n1. Имя\
             \n2. Фамилия\
             \n3. Предмет\
-            \n4. Стоимость урока'
+            \n4. Стоимость урока\
+            \n5. Дата следующего урока (в формате: day-month-year-hour:minute. Например: 12-06-2023-15:00)'
         )
         bot.register_next_step_handler(message, add_student_in_db)
 
@@ -215,18 +218,20 @@ def run_telegram_bot():
         data = 'add_student'
         key = types.InlineKeyboardButton(
             text='Да, все верно', 
-            callback_data=(data + f'-yes-{student_data[0]}-{student_data[1]}-{student_data[2]}-{student_data[3]}')
+            callback_data=(data + f'-yes')
             )
         keyboard.add(key)
         key = types.InlineKeyboardButton(text='Нет', callback_data=(data + '-no'))
         keyboard.add(key)
+        user.student_info = student_data.copy()
         bot.send_message(
             user.user_id, 
-            text=f'''Правильно я понял данные нового ученика:
-1. {student_data[0]};
-2. {student_data[1]};
-3. {student_data[2]};
-4. {student_data[3]}.''', 
+            f'Правильно я понял данные нового ученика:\
+                \n1. {student_data[0]};\
+                \n2. {student_data[1]};\
+                \n3. {student_data[2]};\
+                \n4. {student_data[3]};\
+                \n5. {student_data[4]}', 
             reply_markup=keyboard
             )
 
@@ -259,8 +264,9 @@ def run_telegram_bot():
         if list_view:
             message_ = ''
             for i, student in enumerate(students):
-                name_, surname_, science_, cost_ = student[2], student[3], student[4], student[5]
-                message_ += f'{i + 1}. {name_} {surname_}. Предмет: {science_}. Стоимость урока: {cost_}р.\n'
+                name_, surname_, science_, cost_, date_next_lesson = student[2], student[3], student[4], student[5], student[6]
+                message_ += f'{i + 1}. {name_} {surname_}. Предмет: {science_}. Стоимость урока: {cost_}р.\
+                    \nДата следующего урока: {date_next_lesson}'
             bot.send_message(
                 user.user_id,
                 message_
@@ -400,6 +406,7 @@ def run_telegram_bot():
 
         if command == 'add_lesson':
             student_id = int(call.data.split('-')[1])
+            user.lesson_info = []
             user.lesson_info.append(student_id)
             bot.send_message(
                 user.user_id,
@@ -411,7 +418,7 @@ def run_telegram_bot():
             answer = call.data.split('-')
             if answer[1] == 'yes':
                 try:
-                    user.add_student_in_db(answer[2], answer[3], answer[4], int(answer[5]))
+                    user.add_student_in_db()
                     bot.send_message(
                         user.user_id, 
                         'Ученик добавлен!'
